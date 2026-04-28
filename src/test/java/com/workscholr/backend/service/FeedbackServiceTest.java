@@ -72,7 +72,12 @@ class FeedbackServiceTest {
 
         UserContextService userContextService = new UserContextService(userRepository);
         JobService jobService = new JobService(jobRepository, userContextService, new MapperConfig().modelMapper());
-        ApplicationService applicationService = new ApplicationService(applicationRepository, jobService, userContextService);
+        ApplicationService applicationService = new ApplicationService(
+                applicationRepository,
+                jobService,
+                userContextService,
+                new ResumeStorageService("target/test-resumes")
+        );
         return new FeedbackService(feedbackRepository, applicationService, userContextService);
     }
 

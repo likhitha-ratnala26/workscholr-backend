@@ -1,6 +1,7 @@
 target/
 .m2/
 .m2repo/
+uploads/
 bin/
 .classpath
 .project

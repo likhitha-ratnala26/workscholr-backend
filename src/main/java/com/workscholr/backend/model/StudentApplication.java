@@ -47,6 +47,20 @@ public class StudentApplication {
     @Column(length = 1000)
     private String statementOfPurpose;
 
+    @Column(length = 255)
+    private String resumeFileName;
+
+    @Column(length = 255)
+    private String resumeStoredFileName;
+
+    @Column(length = 100)
+    private String resumeContentType;
+
+    private Long resumeSizeBytes;
+
+    @Column(length = 1000)
+    private String adminDecisionNote;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private ApplicationStatus status;
@@ -126,6 +140,46 @@ public class StudentApplication {
         this.statementOfPurpose = statementOfPurpose;
     }
 
+    public String getResumeFileName() {
+        return resumeFileName;
+    }
+
+    public void setResumeFileName(String resumeFileName) {
+        this.resumeFileName = resumeFileName;
+    }
+
+    public String getResumeStoredFileName() {
+        return resumeStoredFileName;
+    }
+
+    public void setResumeStoredFileName(String resumeStoredFileName) {
+        this.resumeStoredFileName = resumeStoredFileName;
+    }
+
+    public String getResumeContentType() {
+        return resumeContentType;
+    }
+
+    public void setResumeContentType(String resumeContentType) {
+        this.resumeContentType = resumeContentType;
+    }
+
+    public Long getResumeSizeBytes() {
+        return resumeSizeBytes;
+    }
+
+    public void setResumeSizeBytes(Long resumeSizeBytes) {
+        this.resumeSizeBytes = resumeSizeBytes;
+    }
+
+    public String getAdminDecisionNote() {
+        return adminDecisionNote;
+    }
+
+    public void setAdminDecisionNote(String adminDecisionNote) {
+        this.adminDecisionNote = adminDecisionNote;
+    }
+
     public ApplicationStatus getStatus() {
         return status;
     }
@@ -136,5 +190,9 @@ public class StudentApplication {
 
     public LocalDateTime getAppliedAt() {
         return appliedAt;
+    }
+
+    public boolean hasResume() {
+        return resumeStoredFileName != null && !resumeStoredFileName.isBlank();
     }
 }

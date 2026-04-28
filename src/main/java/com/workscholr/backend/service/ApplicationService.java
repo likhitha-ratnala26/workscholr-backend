@@ -11,6 +11,8 @@ import com.workscholr.backend.model.StudentApplication;
 import com.workscholr.backend.model.User;
 import com.workscholr.backend.repository.StudentApplicationRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -20,18 +22,21 @@ public class ApplicationService {
     private final StudentApplicationRepository applicationRepository;
     private final JobService jobService;
     private final UserContextService userContextService;
+    private final ResumeStorageService resumeStorageService;
 
     public ApplicationService(StudentApplicationRepository applicationRepository,
                               JobService jobService,
-                              UserContextService userContextService) {
+                              UserContextService userContextService,
+                              ResumeStorageService resumeStorageService) {
         this.applicationRepository = applicationRepository;
         this.jobService = jobService;
         this.userContextService = userContextService;
+        this.resumeStorageService = resumeStorageService;
     }
 
-    public ApplicationResponse apply(ApplyJobRequest request) {
+    public ApplicationResponse apply(ApplyJobRequest request, MultipartFile resumeFile) {
         User student = userContextService.getCurrentUser();
-        JobOpportunity job = jobService.getEntityById(request.jobId());
+        JobOpportunity job = jobService.getEntityById(request.getJobId());
 
         if (!Boolean.TRUE.equals(job.getActive())) {
             throw new BadRequestException("This job is not active");
@@ -41,17 +46,28 @@ public class ApplicationService {
             throw new BadRequestException("You have already applied for this job");
         }
 
+        ResumeStorageService.StoredResume storedResume = resumeStorageService.store(resumeFile);
+
         StudentApplication application = new StudentApplication();
         application.setStudent(student);
         application.setJobOpportunity(job);
-        application.setPhone(request.phone());
-        application.setGender(request.gender());
-        application.setAddress(request.address());
-        application.setDateOfBirth(request.dateOfBirth());
-        application.setStatementOfPurpose(request.statementOfPurpose());
+        application.setPhone(request.getPhone().trim());
+        application.setGender(request.getGender().trim());
+        application.setAddress(request.getAddress().trim());
+        application.setDateOfBirth(request.getDateOfBirth());
+        application.setStatementOfPurpose(trimToNull(request.getStatementOfPurpose()));
+        application.setResumeFileName(storedResume.originalFileName());
+        application.setResumeStoredFileName(storedResume.storedFileName());
+        application.setResumeContentType(storedResume.contentType());
+        application.setResumeSizeBytes(storedResume.sizeBytes());
         application.setStatus(ApplicationStatus.PENDING);
 
-        return map(applicationRepository.save(application));
+        try {
+            return map(applicationRepository.save(application));
+        } catch (RuntimeException exception) {
+            resumeStorageService.deleteQuietly(storedResume.storedFileName());
+            throw exception;
+        }
     }
 
     public List<ApplicationResponse> getMyApplications() {
@@ -72,8 +88,30 @@ public class ApplicationService {
     public ApplicationResponse updateStatus(Long applicationId, UpdateApplicationStatusRequest request) {
         StudentApplication application = applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
+
+        String decisionNote = trimToNull(request.decisionNote());
+        if (request.status() == ApplicationStatus.REJECTED && decisionNote == null) {
+            throw new BadRequestException("Rejection reason is required.");
+        }
+
         application.setStatus(request.status());
+        application.setAdminDecisionNote(request.status() == ApplicationStatus.REJECTED ? decisionNote : null);
         return map(applicationRepository.save(application));
+    }
+
+    public ResumeStorageService.ResumeDownload getResumeForAdmin(Long applicationId) {
+        StudentApplication application = applicationRepository.findById(applicationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Application not found"));
+
+        if (!application.hasResume()) {
+            throw new ResourceNotFoundException("Resume not found for this application");
+        }
+
+        return resumeStorageService.load(
+                application.getResumeStoredFileName(),
+                application.getResumeFileName(),
+                application.getResumeContentType()
+        );
     }
 
     public StudentApplication getApprovedApplicationForCurrentStudent(Long applicationId) {
@@ -119,8 +157,18 @@ public class ApplicationService {
                 application.getAddress(),
                 application.getDateOfBirth(),
                 application.getStatementOfPurpose(),
+                application.getResumeFileName(),
+                application.hasResume(),
+                application.getAdminDecisionNote(),
                 application.getStatus(),
                 application.getAppliedAt()
         );
+    }
+
+    private String trimToNull(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        return value.trim();
     }
 }

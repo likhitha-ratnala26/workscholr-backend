@@ -1,7 +1,10 @@
 package com.workscholr.backend.service;
 
 import com.workscholr.backend.config.MapperConfig;
+import com.workscholr.backend.dto.ApplicationDtos.UpdateApplicationStatusRequest;
+import com.workscholr.backend.exception.BadRequestException;
 import com.workscholr.backend.exception.ResourceNotFoundException;
+import com.workscholr.backend.model.ApplicationStatus;
 import com.workscholr.backend.model.Role;
 import com.workscholr.backend.model.StudentApplication;
 import com.workscholr.backend.model.User;
@@ -17,8 +20,10 @@ import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class ApplicationServiceTest {
 
@@ -49,6 +54,55 @@ class ApplicationServiceTest {
                 () -> applicationService.getEntityForCurrentStudent(11L));
     }
 
+    @Test
+    void updateStatusRequiresReasonWhenRejecting() {
+        StudentApplication application = new StudentApplication();
+        application.setId(11L);
+        application.setStatus(ApplicationStatus.PENDING);
+
+        ApplicationService applicationService = new ApplicationService(
+                studentApplicationRepositoryForStatus(application),
+                null,
+                null,
+                resumeStorageService()
+        );
+
+        assertThrows(
+                BadRequestException.class,
+                () -> applicationService.updateStatus(
+                        11L,
+                        new UpdateApplicationStatusRequest(ApplicationStatus.REJECTED, "   ")
+                )
+        );
+    }
+
+    @Test
+    void updateStatusStoresReasonWhenRejectingAndClearsItWhenApproving() {
+        StudentApplication application = createApplication(22L, createUser(9L, "student2@example.com", Role.STUDENT));
+        application.setStatus(ApplicationStatus.PENDING);
+
+        ApplicationService applicationService = new ApplicationService(
+                studentApplicationRepositoryForStatus(application),
+                null,
+                null,
+                resumeStorageService()
+        );
+
+        var rejected = applicationService.updateStatus(
+                22L,
+                new UpdateApplicationStatusRequest(ApplicationStatus.REJECTED, "Resume did not match job needs")
+        );
+        assertEquals(ApplicationStatus.REJECTED, rejected.status());
+        assertEquals("Resume did not match job needs", rejected.adminDecisionNote());
+
+        var approved = applicationService.updateStatus(
+                22L,
+                new UpdateApplicationStatusRequest(ApplicationStatus.APPROVED, null)
+        );
+        assertEquals(ApplicationStatus.APPROVED, approved.status());
+        assertNull(approved.adminDecisionNote());
+    }
+
     private ApplicationService createApplicationService(User currentUser,
                                                         Optional<StudentApplication> ownedApplication) {
         setAuthenticatedUser(currentUser);
@@ -59,7 +113,7 @@ class ApplicationServiceTest {
 
         UserContextService userContextService = new UserContextService(userRepository);
         JobService jobService = new JobService(jobRepository, userContextService, new MapperConfig().modelMapper());
-        return new ApplicationService(applicationRepository, jobService, userContextService);
+        return new ApplicationService(applicationRepository, jobService, userContextService, resumeStorageService());
     }
 
     private UserRepository userRepository(User user) {
@@ -93,6 +147,21 @@ class ApplicationServiceTest {
         );
     }
 
+    private StudentApplicationRepository studentApplicationRepositoryForStatus(StudentApplication application) {
+        return (StudentApplicationRepository) Proxy.newProxyInstance(
+                StudentApplicationRepository.class.getClassLoader(),
+                new Class[]{StudentApplicationRepository.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "findById" -> Optional.of(application);
+                    case "save" -> args[0];
+                    case "toString" -> "StudentApplicationRepositoryStatusProxy";
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == args[0];
+                    default -> throw new UnsupportedOperationException(method.getName());
+                }
+        );
+    }
+
     private JobOpportunityRepository emptyJobRepository() {
         return (JobOpportunityRepository) Proxy.newProxyInstance(
                 JobOpportunityRepository.class.getClassLoader(),
@@ -106,6 +175,27 @@ class ApplicationServiceTest {
                     default -> throw new UnsupportedOperationException(method.getName());
                 }
         );
+    }
+
+    private ResumeStorageService resumeStorageService() {
+        return new ResumeStorageService("target/test-resumes");
+    }
+
+    private StudentApplication createApplication(Long id, User student) {
+        com.workscholr.backend.model.JobOpportunity job = new com.workscholr.backend.model.JobOpportunity();
+        job.setId(30L);
+        job.setTitle("Campus Assistant");
+        job.setDepartment("Admin");
+
+        StudentApplication application = new StudentApplication();
+        application.setId(id);
+        application.setStudent(student);
+        application.setJobOpportunity(job);
+        application.setPhone("9876543210");
+        application.setGender("Female");
+        application.setAddress("Campus Hostel");
+        application.setDateOfBirth(java.time.LocalDate.of(2004, 1, 10));
+        return application;
     }
 
     private void setAuthenticatedUser(User user) {
